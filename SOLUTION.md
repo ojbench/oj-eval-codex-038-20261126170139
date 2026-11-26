@@ -36,3 +36,6 @@ method. Submission IDs are also logged by the client outside the repository.
   a performance gap on the move test. Added bulk trivial copy construction and
   allocator-assisted reallocation for trivial, normally aligned elements.
   Over-aligned elements use matching aligned allocation and deallocation.
+- 879464: Accepted, 100/100 (50/50 on each test). Move performance matched
+  both reference containers; reallocation matched dark::vector and exceeded
+  std::vector. Two of five available submissions used.
