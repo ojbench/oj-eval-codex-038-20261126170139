@@ -16,7 +16,20 @@ template<class T> class vector {
 
     static T *allocate(size_t n) {
         if (n > size_t(-1) / sizeof(T)) throw runtime_error();
-        return static_cast<T *>(::operator new(n * sizeof(T)));
+        if constexpr (__is_trivially_copyable(T) && alignof(T) <= alignof(std::max_align_t)) {
+            void *p = std::malloc(n * sizeof(T));
+            if (!p) throw runtime_error();
+            return static_cast<T *>(p);
+        }
+        if constexpr (alignof(T) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+            return static_cast<T *>(::operator new(n * sizeof(T), std::align_val_t(alignof(T))));
+        else return static_cast<T *>(::operator new(n * sizeof(T)));
+    }
+    static void release(T *p) {
+        if constexpr (__is_trivially_copyable(T) && alignof(T) <= alignof(std::max_align_t)) std::free(p);
+        else if constexpr (alignof(T) > __STDCPP_DEFAULT_NEW_ALIGNMENT__)
+            ::operator delete(p, std::align_val_t(alignof(T)));
+        else ::operator delete(p);
     }
     static void destroy(T *p, size_t n) {
         if constexpr (!__has_trivial_destructor(T)) {
@@ -25,7 +38,15 @@ template<class T> class vector {
     }
     void grow() {
         const size_t next = capacity_ ? capacity_ * 2 : 4;
-        if (next < capacity_) throw runtime_error();
+        if (next < capacity_ || next > size_t(-1) / sizeof(T)) throw runtime_error();
+        // Trivial objects can be relocated by the allocator, often in place.
+        if constexpr (__is_trivially_copyable(T) && alignof(T) <= alignof(std::max_align_t)) {
+            void *p = std::realloc(data_, next * sizeof(T));
+            if (!p) throw runtime_error();
+            data_ = static_cast<T *>(p);
+            capacity_ = next;
+            return;
+        }
         T *p = allocate(next);
         if constexpr (__is_trivially_copyable(T)) {
             if (size_) std::memcpy(p, data_, size_ * sizeof(T));
@@ -35,12 +56,12 @@ template<class T> class vector {
                 for (; i < size_; ++i) new (p + i) T(static_cast<T &&>(data_[i]));
             } catch (...) {
                 destroy(p, i);
-                ::operator delete(p);
+                release(p);
                 throw;
             }
             destroy(data_, size_);
         }
-        ::operator delete(data_);
+        release(data_);
         data_ = p;
         capacity_ = next;
     }
@@ -95,18 +116,23 @@ public:
         if (!o.size_) return;
         data_ = allocate(o.size_);
         capacity_ = o.size_;
+        if constexpr (__is_trivially_copyable(T)) {
+            std::memcpy(data_, o.data_, o.size_ * sizeof(T));
+            size_ = o.size_;
+            return;
+        }
         try {
             for (; size_ < o.size_; ++size_) new (data_ + size_) T(o.data_[size_]);
         } catch (...) {
             destroy(data_, size_);
-            ::operator delete(data_);
+            release(data_);
             throw;
         }
     }
     vector(vector &&o) noexcept : data_(o.data_), size_(o.size_), capacity_(o.capacity_) {
         o.data_ = nullptr; o.size_ = o.capacity_ = 0;
     }
-    ~vector() { destroy(data_, size_); ::operator delete(data_); }
+    ~vector() { destroy(data_, size_); release(data_); }
     vector &operator=(const vector &o) {
         if (this != &o) { vector copy(o); swap(copy); }
         return *this;

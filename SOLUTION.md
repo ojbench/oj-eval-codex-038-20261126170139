@@ -29,3 +29,10 @@ Build the local checks with `cmake -S . -B build`, `cmake --build build`, and
 
 The submission client was repaired by implementing its missing `submit_code`
 method. Submission IDs are also logged by the client outside the repository.
+
+## Submission history
+
+- 879461: 94/100 (Move Test 44/50, Realloc Test 50/50). The judge reported
+  a performance gap on the move test. Added bulk trivial copy construction and
+  allocator-assisted reallocation for trivial, normally aligned elements.
+  Over-aligned elements use matching aligned allocation and deallocation.
